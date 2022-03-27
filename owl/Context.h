@@ -1,5 +1,5 @@
 // ======================================================================== //
-// Copyright 2019-2020 Ingo Wald                                            //
+// Copyright 2019-2021 Ingo Wald                                            //
 //                                                                          //
 // Licensed under the Apache License, Version 2.0 (the "License");          //
 // you may not use this file except in compliance with the License.         //
@@ -41,6 +41,9 @@ namespace owl {
       return true;
 #endif
     }
+
+    /*! pretty-printer, for printf-debugging */
+    virtual std::string toString() const override { return "owl::Context"; }
 
     /*! creates a context with the given device IDs. If list of device
       is nullptr, and number requested devices is > 1, then the
@@ -95,6 +98,10 @@ namespace owl {
       instances) */
     void setMaxInstancingDepth(int32_t maxInstanceDepth);
 
+    /* Set number of attributes for passing data from custom Intersection programs
+       to ClosestHit programs.  Default 2.  Has no effect once programs are built.*/
+    void setNumAttributeValues(size_t numAttributeValues);
+
 
     // ------------------------------------------------------------------
     // internal mechanichs/plumbling that do the actual work
@@ -133,15 +140,15 @@ namespace owl {
       different programs, etc, but must all be of "OWL_TRIANGLES"
       kind */
     GeomGroup::SP
-    trianglesGeomGroupCreate(size_t numChildren);
+    trianglesGeomGroupCreate(size_t numChildren, unsigned int buildFlags);
     
     /*! create a new *user* geometry group that will eventually create
       a BVH over all the user geoms / custom prims in all its child
       geometries. only UserGeom's can be added to this group. These
       user geoms can all have different types, different programs,
-      etc, but must all be of "OWL_TRIANGLES" kind */
+      etc, but must all be of "OWL_GEOMETRY_USER" kind */
     GeomGroup::SP
-    userGeomGroupCreate(size_t numChildren);
+    userGeomGroupCreate(size_t numChildren, unsigned int buildFlags);
 
     /*! create a new device buffer of given data type and count; if
       init is non-null it will be used to populoate this
@@ -272,6 +279,9 @@ namespace owl {
     /*! by default motion blur is off, as it costs performacne - set
       via enableMotimBlur() */
     bool motionBlurEnabled = false;
+
+    /* Number of attributes for writing data between Intersection and ClosestHit */
+    int numAttributeValues = 2;
 
     /*! a set of dummy (ie, empty) launch params. allows us for always
       using the same launch code, *with* launch params, even if th

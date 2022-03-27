@@ -1,5 +1,5 @@
 # ======================================================================== #
-# Copyright 2019-2020 Ingo Wald                                            #
+# Copyright 2019-2021 Ingo Wald                                            #
 #                                                                          #
 # Licensed under the Apache License, Version 2.0 (the "License");          #
 # you may not use this file except in compliance with the License.         #
@@ -14,33 +14,13 @@
 # limitations under the License.                                           #
 # ======================================================================== #
 
-set(CUDA_USE_STATIC_CUDA_RUNTIME ON)
+find_package(OptiX REQUIRED)
 
-include_directories(${PROJECT_SOURCE_DIR}/owl/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+add_library(owl)
 
-cuda_include_directories(${PROJECT_SOURCE_DIR}/owl/include)
-cuda_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include(cmake/configure_tbb.cmake)
 
-
-add_definitions(${OWL_CXX_FLAGS})
-
-
-set(INTERFACE_POSITION_INDEPENDENT_CODE ON)
-
-set(CUDA_SEPARABLE_COMPILATION ON)
-set(CUDA_VERBOSE_BUILD ON)
-if (NOT WIN32)
-set(CUDA_NVCC_FLAGS --compiler-options -fPIC)
-endif()
-
-include_directories(${PROJECT_SOURCE_DIR}/)
-include_directories(${PROJECT_SOURCE_DIR}/owl/include)
-
-cuda_include_directories(${PROJECT_SOURCE_DIR}/owl/include)
-
-set(OWL_SOURCES
-
+target_sources(owl PRIVATE
   # -------------------------------------------------------
   # infrastructure
   # -------------------------------------------------------
@@ -48,32 +28,29 @@ set(OWL_SOURCES
   include/owl/owl_host.h
   include/owl/owl_device.h
   include/owl/common/arrayND/array2D.h
-include/owl/common/arrayND/array3D.h
-include/owl/common/math/AffineSpace.h
-include/owl/common/math/box.h
-include/owl/common/math/constants.h
-include/owl/common/math/fixedpoint.h
-include/owl/common/math/LinearSpace.h
-include/owl/common/math/Quaternion.h
-include/owl/common/math/random.h
-include/owl/common/math/vec/compare.h
-include/owl/common/math/vec/functors.h
-include/owl/common/math/vec/rotate.h
-include/owl/common/math/vec.h
-include/owl/common/owl-common.h
-include/owl/common/parallel/parallel_for.h
-include/owl/owl.h
-include/owl/owl_device.h
-include/owl/owl_device_buffer.h
-include/owl/owl_host.h
-helper/cuda.h
-helper/optix.h
-common.h
+  include/owl/common/arrayND/array3D.h
+  include/owl/common/math/AffineSpace.h
+  include/owl/common/math/box.h
+  include/owl/common/math/constants.h
+  include/owl/common/math/fixedpoint.h
+  include/owl/common/math/LinearSpace.h
+  include/owl/common/math/Quaternion.h
+  include/owl/common/math/random.h
+  include/owl/common/math/vec/compare.h
+  include/owl/common/math/vec/functors.h
+  include/owl/common/math/vec/rotate.h
+  include/owl/common/math/vec.h
+  include/owl/common/owl-common.h
+  include/owl/common/parallel/parallel_for.h
+  include/owl/owl.h
+  include/owl/owl_device.h
+  include/owl/owl_device_buffer.h
+  include/owl/owl_host.h
+  helper/cuda.h
+  helper/optix.h
+  common.h
 
-cmake/configure_tbb.cmake
-  cmake/configure_owl.cmake
-  cmake/configure_optix.cmake
-  cmake/configure_glfw.cmake
+  cmake/configure_tbb.cmake
   cmake/FindOptiX.cmake
 
   # -------------------------------------------------------
@@ -84,7 +61,7 @@ cmake/configure_tbb.cmake
   APIHandle.h
   APIHandle.cpp
   impl.cpp
-  
+
   # -------------------------------------------------------
   # data handling
   # -------------------------------------------------------
@@ -93,7 +70,6 @@ cmake/configure_tbb.cmake
   Texture.h
   Texture.cpp
 
-  
   # -------------------------------------------------------
   # base classes
   # -------------------------------------------------------
@@ -105,7 +81,7 @@ cmake/configure_tbb.cmake
   RegisteredObject.cpp
   DeviceContext.h
   DeviceContext.cpp
-  
+
   ObjectRegistry.h
   ObjectRegistry.cpp
   Context.h
@@ -124,64 +100,72 @@ cmake/configure_tbb.cmake
   MissProg.cpp
   Variable.h
   Variable.cpp
-  
+
   # -------------------------------------------------------
   # geometries
   # -------------------------------------------------------
-Geometry.h
+  Geometry.h
   Geometry.cpp
-Triangles.h
+  Triangles.h
   Triangles.cu
-UserGeom.h
+  UserGeom.h
   UserGeom.cu
-
 
   # -------------------------------------------------------
   # accel structures
   # -------------------------------------------------------
-Group.h
+  Group.h
   Group.cpp
-InstanceGroup.h
+  InstanceGroup.h
   InstanceGroup.cpp
-TrianglesGeomGroup.h
+  TrianglesGeomGroup.h
   TrianglesGeomGroup.cpp
-UserGeomGroup.h
+  UserGeomGroup.h
   UserGeomGroup.cpp
 )
 
-cuda_add_library(owl_static
-  ${OWL_SOURCES}
-  STATIC
-  )
+set_target_properties(owl
+  PROPERTIES
+  CUDA_SEPARABLE_COMPILATION ON
+  POSITION_INDEPENDENT_CODE ON
+  CUDA_RESOLVE_DEVICE_SYMBOLS ON
+  CUDA_USE_STATIC_CUDA_RUNTIME ON
+)
 
+target_link_libraries(owl PUBLIC OptiX::OptiX)
+#target_link_libraries(owl PUBLIC OptiX)
+if (OWL_HAVE_TBB AND TBB_FOUND)
+  target_link_libraries(owl PUBLIC ${TBB_LIBRARIES})
+  target_include_directories(owl PUBLIC ${TBB_INCLUDE_DIR})
+  target_compile_definitions(owl PUBLIC -DOWL_HAVE_TBB=1)
+endif()
 
-# Nate: 11/3/20: I get "fatal error C1041: cannot open program database" 
-# on windows from this "owl" shared target being built in parallel against 
-# the "owl_static" target, as for some reason they seem to try to 
-# write to the same .pdb file simultaneously.
+# bind OWL to CUDA (includes and library)
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.17)
+  # for new cmake version, we can rely on the working cuda detection
+  # mechanism
+  find_package(CUDAToolkit REQUIRED)
+  target_link_libraries(owl PUBLIC CUDA::cuda_driver CUDA::cudart_static)
+else()
+  # for older version of cmake (where CUDAToolkit detection doesn't
+  # properly work) we fall back to search paths for hardcoded library
+  # names and header name; this isn't clean, but applies only for a
+  # small set of deprecated cmake versions, so OK for now.
+  target_link_libraries(owl PUBLIC cuda)
+  find_path(cuda_h_dir NAMES cuda.h HINTS /usr/local/cuda/include)
+  target_include_directories(owl PUBLIC ${cuda_h_dir})
+endif()
 
-# cuda_add_library(owl
-#   ${OWL_SOURCES}
-#   )
+target_include_directories(owl
+  PUBLIC
+    /usr/local/cuda/include/
+    ${PROJECT_SOURCE_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/include
+)
+set_property(TARGET owl PROPERTY CUDA_ARCHITECTURES "70;75;80;86") 
 
-# target_link_libraries(owl
-#    ${CUDA_LIBRARIES}
-#    ${CUDA_CUDA_LIBRARY}
-#   )
+if (WIN32)
+  target_compile_definitions(owl PUBLIC -DNOMINMAX)
+endif()
 
-target_link_libraries(owl_static
-   ${CUDA_LIBRARIES}
-   ${CUDA_CUDA_LIBRARY}
-   ${CMAKE_THREAD_LIBS_INIT}
-  )
-
-
-#set_target_properties(owl PROPERTIES POSITION_INDEPENDENT_CODE ON)
-set_target_properties(owl_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
-#target_compile_options(owl_static PRIVATE -fPIC)
-
-# -------------------------------------------------------
-# export those back to our parent:
-# -------------------------------------------------------
-set(OWL_INCLUDES ${OWL_INCLUDES} PARENT_SCOPE)
-set(OWL_LIBRARIES ${OWL_LIBRARIES} PARENT_SCOPE)
+add_library(owl::owl ALIAS owl)

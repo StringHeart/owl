@@ -1,5 +1,5 @@
 # ======================================================================== #
-# Copyright 2019-2020 Ingo Wald                                            #
+# Copyright 2019-2022 Ingo Wald                                            #
 #                                                                          #
 # Licensed under the Apache License, Version 2.0 (the "License");          #
 # you may not use this file except in compliance with the License.         #
@@ -14,20 +14,19 @@
 # limitations under the License.                                           #
 # ======================================================================== #
 
-# ---------------------------------------------------------------------------
-# a more serious kind of example with model loader, viewer, simple
-# path tracer, etc
-# ---------------------------------------------------------------------------
-if (OWL_HAVE_VIEWER)
-  
-  file(GLOB samples RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "int??-*")
-  
-  include_directories(${OWL_VIEWER_INCLUDES})
-  add_definitions(${OWL_CXX_FLAGS})
-  foreach(sample ${samples})
-    add_subdirectory(${sample})
-  endforeach()
-  
-endif()
+#file(GLOB samples RELATIVE ${CMAKE_CURRENT_LIST_DIR} "int??-*")
+
+foreach(sample IN ITEMS
+    int01-simpleTriangles
+    int06-mixedGeometries
+    int07-whitted
+    int10-texturedTriangles
+    int11-rotatingBoxes
+    int12-switchingTextureSets
+    int13-motionBlurInstances
+    int15-cookBilliardScene
+    )
+  add_subdirectory(${sample})
+endforeach()
 
 

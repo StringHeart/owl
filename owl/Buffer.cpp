@@ -1,5 +1,5 @@
 // ======================================================================== //
-// Copyright 2019-2020 Ingo Wald                                            //
+// Copyright 2019-2021 Ingo Wald                                            //
 //                                                                          //
 // Licensed under the Apache License, Version 2.0 (the "License");          //
 // you may not use this file except in compliance with the License.         //
@@ -94,7 +94,7 @@ namespace owl {
 
     SetActiveGPU forLifeTime(device);
 
-    CUDA_CALL_NOTHROW(Free(d_pointer));
+    OWL_CUDA_CALL_NOTHROW(Free(d_pointer));
     d_pointer = nullptr;
   }
   
@@ -113,7 +113,15 @@ namespace owl {
     if (type == OWL_TEXTURE)
       return std::make_shared<DeviceBuffer::DeviceDataForTextures>(this,device);
 
-    throw std::runtime_error("unsupported element type for device buffer");
+    OWL_RAISE("unsupported element type for device buffer");
+    return nullptr;
+  }
+  
+  void DeviceBuffer::clear()
+  {
+    for (auto dd : deviceData)
+      dd->as<DeviceBuffer::DeviceData>().clear();
+    OWL_CUDA_SYNC_CHECK();
   }
   
   void DeviceBuffer::upload(const void *hostPtr, size_t offset, int64_t count)
@@ -121,14 +129,14 @@ namespace owl {
     assert(deviceData.size() == context->deviceCount());
     for (auto dd : deviceData)
       dd->as<DeviceBuffer::DeviceData>().uploadAsync(hostPtr, offset, count);
-    CUDA_SYNC_CHECK();
+    OWL_CUDA_SYNC_CHECK();
   }
   
   void DeviceBuffer::upload(const int deviceID, const void *hostPtr, size_t offset, int64_t count) 
   {
     assert(deviceID < (int)deviceData.size());
     deviceData[deviceID]->as<DeviceBuffer::DeviceData>().uploadAsync(hostPtr, offset, count);
-    CUDA_SYNC_CHECK();
+    OWL_CUDA_SYNC_CHECK();
   }
   
 
@@ -148,12 +156,16 @@ namespace owl {
   {
     SetActiveGPU forLifeTime(device);
     if (d_pointer) {
-      CUDA_CALL(Free(d_pointer)); d_pointer = nullptr;
+      OWL_CUDA_CALL(Free(d_pointer)); d_pointer = nullptr;
     }
 
     if (parent->elementCount)
-      CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeof(cudaTextureObject_t)));
-    
+      OWL_CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeof(cudaTextureObject_t)));
+  }
+
+  void DeviceBuffer::DeviceDataForTextures::clear() 
+  {
+    throw std::runtime_error("owlBufferClear() not implmemented for buffers of textures");
   }
   
   void DeviceBuffer::DeviceDataForTextures::uploadAsync(const void *hostDataPtr, size_t offset, int64_t count) 
@@ -173,10 +185,15 @@ namespace owl {
       } else
         hostHandles[i] = nullptr;
 
-    CUDA_CALL(MemcpyAsync((char*)d_pointer + offset, devRep.data(),
+    OWL_CUDA_CALL(MemcpyAsync((char*)d_pointer + offset, devRep.data(),
                           devRep.size()*sizeof(devRep[0]),
                           cudaMemcpyDefault,
                           device->getStream()));
+  }
+  
+  void DeviceBuffer::DeviceDataForBuffers::clear() 
+  {
+    throw std::runtime_error("owlBufferClear() not implmemented for buffers of buffers");
   }
   
   void DeviceBuffer::DeviceDataForBuffers::executeResize() 
@@ -184,11 +201,11 @@ namespace owl {
     SetActiveGPU forLifeTime(device);
     
     if (d_pointer) {
-      CUDA_CALL(Free(d_pointer)); d_pointer = nullptr;
+      OWL_CUDA_CALL(Free(d_pointer)); d_pointer = nullptr;
     }
 
     if (parent->elementCount) {
-      CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeof(device::Buffer)));
+      OWL_CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeof(device::Buffer)));
     }
   }
   
@@ -216,7 +233,7 @@ namespace owl {
         devRep[i].count   = 0;
       }
 
-    CUDA_CALL(MemcpyAsync((char*)d_pointer + offset,devRep.data(),
+    OWL_CUDA_CALL(MemcpyAsync((char*)d_pointer + offset,devRep.data(),
                           devRep.size()*sizeof(devRep[0]),
                           cudaMemcpyDefault,
                           device->getStream()));
@@ -225,15 +242,20 @@ namespace owl {
 
 
 
+  void DeviceBuffer::DeviceDataForGroups::clear() 
+  {
+    throw std::runtime_error("owlBufferClear() not implmemented for buffers of groups");
+  }
+  
 
   void DeviceBuffer::DeviceDataForGroups::executeResize() 
   {
     SetActiveGPU forLifeTime(device);
     
-    if (d_pointer) { CUDA_CALL(Free(d_pointer)); d_pointer = nullptr; }
+    if (d_pointer) { OWL_CUDA_CALL(Free(d_pointer)); d_pointer = nullptr; }
 
     if (parent->elementCount)
-      CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeof(OptixTraversableHandle)));
+      OWL_CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeof(OptixTraversableHandle)));
   }
   
   void DeviceBuffer::DeviceDataForGroups::uploadAsync(const void *hostDataPtr, size_t offset, int64_t count) 
@@ -260,13 +282,22 @@ namespace owl {
         devRep[i] = 0;
       }
 
-    CUDA_CALL(MemcpyAsync((char*)d_pointer + offset,devRep.data(),
+    OWL_CUDA_CALL(MemcpyAsync((char*)d_pointer + offset,devRep.data(),
                           devRep.size()*sizeof(devRep[0]),
                           cudaMemcpyDefault,
                           device->getStream()));
   }
 
 
+  void DeviceBuffer::DeviceDataForCopyableData::clear() 
+  {
+    SetActiveGPU forLifeTime(device);
+    
+    if (parent->elementCount) {
+      OWL_CUDA_CALL(Memset(d_pointer,0,parent->elementCount*sizeOf(parent->type)));
+    }
+  }
+  
 
   
   void DeviceBuffer::DeviceDataForCopyableData::executeResize() 
@@ -274,11 +305,11 @@ namespace owl {
     SetActiveGPU forLifeTime(device);
     
     if (d_pointer) {
-      CUDA_CALL(Free(d_pointer)); d_pointer = nullptr;
+      OWL_CUDA_CALL(Free(d_pointer)); d_pointer = nullptr;
     }
 
     if (parent->elementCount) {
-      CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeOf(parent->type)));
+      OWL_CUDA_CALL(Malloc(&d_pointer,parent->elementCount*sizeOf(parent->type)));
     }
   }
   
@@ -286,7 +317,7 @@ namespace owl {
   {
     SetActiveGPU forLifeTime(device);
     
-    CUDA_CALL(MemcpyAsync((char*)d_pointer + offset,hostDataPtr,
+    OWL_CUDA_CALL(MemcpyAsync((char*)d_pointer + offset,hostDataPtr,
                           ((count == -1) ? parent->elementCount : count)*sizeOf(parent->type),
                           cudaMemcpyDefault,
                           device->getStream()));
@@ -302,8 +333,17 @@ namespace owl {
   HostPinnedBuffer::HostPinnedBuffer(Context *const context,
                                      OWLDataType type)
     : Buffer(context,type)
+  {}
+
+  /*! destructor that frees any allocated host-pinned memory */
+  HostPinnedBuffer::~HostPinnedBuffer()
   {
+    if (cudaHostPinnedMem) {
+      OWL_CUDA_CALL_NOTHROW(FreeHost(cudaHostPinnedMem));
+      cudaHostPinnedMem = nullptr;
+    }
   }
+  
   
   /*! pretty-printer, for debugging */
   std::string HostPinnedBuffer::toString() const
@@ -314,17 +354,23 @@ namespace owl {
   void HostPinnedBuffer::resize(size_t newElementCount)
   {
     if (cudaHostPinnedMem) {
-      CUDA_CALL_NOTHROW(FreeHost(cudaHostPinnedMem));
+      OWL_CUDA_CALL_NOTHROW(FreeHost(cudaHostPinnedMem));
       cudaHostPinnedMem = nullptr;
     }
 
     elementCount = newElementCount;
     if (newElementCount > 0)
-      CUDA_CALL(MallocHost((void**)&cudaHostPinnedMem, sizeInBytes()));
+      OWL_CUDA_CALL(MallocHost((void**)&cudaHostPinnedMem, sizeInBytes()));
 
     for (auto device : context->getDevices()) {
       getDD(device).d_pointer = cudaHostPinnedMem;
     }
+  }
+  
+  void HostPinnedBuffer::clear()
+  {
+    assert(cudaHostPinnedMem);
+    memset((char*)cudaHostPinnedMem, 0, sizeInBytes());
   }
   
   void HostPinnedBuffer::upload(const void *sourcePtr, size_t offset, int64_t count)
@@ -335,8 +381,8 @@ namespace owl {
   
   void HostPinnedBuffer::upload(const int deviceID, const void *hostPtr, size_t offset, int64_t count)
   {
-    throw std::runtime_error("uploading to specific device doesn't "
-                             "make sense for host pinned buffers");
+    OWL_RAISE("uploading to specific device doesn't "
+              "make sense for host pinned buffers");
   }
   
   // ------------------------------------------------------------------
@@ -348,6 +394,15 @@ namespace owl {
     : Buffer(context,type)
   {}
 
+    /*! destructor that frees any left-over allocated memory */
+  ManagedMemoryBuffer::~ManagedMemoryBuffer()
+  {
+    if (cudaManagedMem) {
+      OWL_CUDA_CALL_NOTHROW(Free(cudaManagedMem));
+      cudaManagedMem = 0;
+    }
+  }
+
   /*! pretty-printer, for debugging */
   std::string ManagedMemoryBuffer::toString() const
   {
@@ -357,13 +412,13 @@ namespace owl {
   void ManagedMemoryBuffer::resize(size_t newElementCount)
   {
     if (cudaManagedMem) {
-      CUDA_CALL_NOTHROW(Free(cudaManagedMem));
+      OWL_CUDA_CALL_NOTHROW(Free(cudaManagedMem));
       cudaManagedMem = 0;
     }
     
     elementCount = newElementCount;
     if (newElementCount > 0) {
-      CUDA_CALL(MallocManaged((void**)&cudaManagedMem, sizeInBytes()));
+      OWL_CUDA_CALL(MallocManaged((void**)&cudaManagedMem, sizeInBytes()));
       unsigned char *mem_end = (unsigned char *)cudaManagedMem + sizeInBytes();
       size_t pageSize = 16*1024*1024;
       int pageID = 0;
@@ -402,6 +457,12 @@ namespace owl {
       getDD(device).d_pointer = cudaManagedMem;
   }
   
+  void ManagedMemoryBuffer::clear()
+  {
+    assert(cudaManagedMem);
+    OWL_CUDA_CALL(Memset((char*)cudaManagedMem, 0, sizeInBytes()));
+  }
+  
   void ManagedMemoryBuffer::upload(const void *hostPtr, size_t offset, int64_t count)
   {
     assert(cudaManagedMem);
@@ -412,8 +473,8 @@ namespace owl {
   void ManagedMemoryBuffer::upload(const int deviceID,
                                    const void *hostPtr, size_t offset, int64_t count)
   {
-    throw std::runtime_error("copying to a specific device doesn't"
-                             " make sense for a managed mem buffer");
+    OWL_RAISE("copying to a specific device doesn't"
+              " make sense for a managed mem buffer");
   }
 
   // ------------------------------------------------------------------
@@ -432,6 +493,11 @@ namespace owl {
     : Buffer(context, type)
   {}
 
+  void GraphicsBuffer::clear()
+  {
+    throw std::runtime_error("graphics buffers are not a valid target for owlBufferClear()");
+  }
+  
   void GraphicsBuffer::resize(size_t newElementCount)
   {
     elementCount = newElementCount;
@@ -439,28 +505,28 @@ namespace owl {
 
   void GraphicsBuffer::upload(const void *hostPtr, size_t offset, int64_t count)
   {
-    throw std::runtime_error("Buffer::upload doesn' tmake sense for graphics buffers");
+    OWL_RAISE("Buffer::upload doesn' tmake sense for graphics buffers");
   }
   
   void GraphicsBuffer::upload(const int deviceID, const void *hostPtr, size_t offset, int64_t count) 
   {
-    throw std::runtime_error("Buffer::upload doesn' tmake sense for graphics buffers");
+    OWL_RAISE("Buffer::upload doesn' tmake sense for graphics buffers");
   }
   
   void GraphicsBuffer::map(const int deviceID, CUstream stream)
   {
     DeviceContext::SP device = context->getDevice(deviceID);
     DeviceData &dd = getDD(device);
-    CUDA_CHECK(cudaGraphicsMapResources(1, &resource, stream));
+    OWL_CUDA_CHECK(cudaGraphicsMapResources(1, &resource, stream));
     size_t size = 0;
-    CUDA_CHECK(cudaGraphicsResourceGetMappedPointer(&dd.d_pointer, &size, resource));
+    OWL_CUDA_CHECK(cudaGraphicsResourceGetMappedPointer(&dd.d_pointer, &size, resource));
   }
 
   void GraphicsBuffer::unmap(const int deviceID, CUstream stream)
   {
     DeviceContext::SP device = context->getDevice(deviceID);
     DeviceData &dd = getDD(device);
-    CUDA_CHECK(cudaGraphicsUnmapResources(1, &resource, stream));
+    OWL_CUDA_CHECK(cudaGraphicsUnmapResources(1, &resource, stream));
     dd.d_pointer = nullptr;
   }
 
