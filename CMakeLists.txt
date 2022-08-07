@@ -105,3 +105,5 @@ endif()
 if (OWL_BUILD_ADVANCED_TESTS)
   add_subdirectory(tests)
 endif()
+
+# test github online edit without SSH key
